@@ -21,7 +21,9 @@ def parse_system_load(file_path: str | Path) -> pd.DataFrame:
     crete_flow_values = df.iloc[8, 1:26].astype(float)
 
     if net_load_date != crete_flow_date:
-        raise ValueError("Dates in ADMIE data blocks do not match.")
+        raise ValueError(
+            "Dates in ADMIE data blocks do not match."
+        )
 
     result = pd.DataFrame(
         {
@@ -31,21 +33,25 @@ def parse_system_load(file_path: str | Path) -> pd.DataFrame:
             "crete_flow_mwh": crete_flow_values.to_numpy(),
         }
     )
+
     return result
 
 
-def parse_system_load_folder(folder_path: str | Path) -> pd.DataFrame:
-    folder = Path(folder_path)
-
-    all_files = sorted(folder.glob("*RealTimeSCADASystemLoad*.xls"))
+def parse_system_load_files(
+    file_paths: list[Path],
+) -> pd.DataFrame:
+    if not file_paths:
+        raise ValueError("No ADMIE files were provided.")
 
     dataframes = []
 
-    for file_path in all_files:
+    for file_path in file_paths:
         df = parse_system_load(file_path)
         dataframes.append(df)
 
-    result = pd.concat(dataframes, ignore_index=True)
+    result = pd.concat(
+        dataframes,
+        ignore_index=True,
+    )
 
-    
     return result

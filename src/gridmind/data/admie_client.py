@@ -57,20 +57,42 @@ class AdmieClient:
 
         return file_path
 
+    def download_files(
+        self,
+        start_date: str,
+        end_date: str,
+        file_category: str,
+        destination_folder: str,
+    ) -> list[Path]:
+
+        files = self.get_files(
+            start_date=start_date,
+            end_date=end_date,
+            file_category=file_category,
+        )
+
+        downloaded_files = []
+
+        for file in files:
+            file_path = self.download_file(
+                file_url=file["file_path"],
+                destination_folder=destination_folder,
+            )
+
+            downloaded_files.append(file_path)
+
+        return downloaded_files
+
 
 if __name__ == "__main__":
     client = AdmieClient()
 
-    files = client.get_files(
-        start_date="2025-10-26",
-        end_date="2025-10-26",
+    downloaded_files = client.download_files(
+        start_date="2026-01-15",
+        end_date="2026-01-20",
         file_category="RealTimeSCADASystemLoad",
+        destination_folder="data/raw",
     )
 
-    for file in files:
-        saved_path = client.download_file(
-            file_url=file["file_path"],
-            destination_folder="data/raw",
-        )
-
-        print(f"Saved to: {saved_path}")
+    for file_path in downloaded_files:
+        print(f"Saved to: {file_path}")
