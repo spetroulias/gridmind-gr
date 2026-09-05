@@ -42,7 +42,7 @@ class LangChainEmbeddingService:
             model_name=self.config.model_name,
             encode_kwargs=self.config.encode_kwargs
         )
-        logger.info("LangChain Embedding Service initialized successfully.")
+        logger.info("LangChain Embedding Service initialized successfully.") #it has by default 384 dimensions for the embeddings same as Qdrant
 
     def embed_query(self, text: str) -> List[float]:
         """
