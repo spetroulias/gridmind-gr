@@ -1,14 +1,56 @@
+
 from pathlib import Path
+from time import sleep
 from typing import Any
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class AdmieClient:
     BASE_URL = "https://www.admie.gr"
 
-    def __init__(self, timeout: int = 30):
+    def __init__(
+        self,
+        timeout: int = 120,
+        max_retries: int = 5,
+        backoff_factor: float = 2.0,
+    ):
         self.timeout = timeout
+
+        retry_strategy = Retry(
+            total=max_retries,
+            connect=max_retries,
+            read=max_retries,
+            status=max_retries,
+            backoff_factor=backoff_factor,
+            status_forcelist=[
+                429,
+                500,
+                502,
+                503,
+                504,
+            ],
+            allowed_methods=["GET"],
+            raise_on_status=False,
+        )
+
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy
+        )
+
+        self.session = requests.Session()
+
+        self.session.mount(
+            "https://",
+            adapter,
+        )
+
+        self.session.mount(
+            "http://",
+            adapter,
+        )
 
     def get_files(
         self,
@@ -16,7 +58,10 @@ class AdmieClient:
         end_date: str,
         file_category: str,
     ) -> list[dict[str, Any]]:
-        url = f"{self.BASE_URL}/getOperationMarketFilewRange"
+        url = (
+            f"{self.BASE_URL}/"
+            "getOperationMarketFilewRange"
+        )
 
         params = {
             "dateStart": start_date,
@@ -24,7 +69,7 @@ class AdmieClient:
             "FileCategory": file_category,
         }
 
-        response = requests.get(
+        response = self.session.get(
             url,
             params=params,
             timeout=self.timeout,
@@ -39,21 +84,30 @@ class AdmieClient:
         file_url: str,
         destination_folder: str,
     ) -> Path:
-        response = requests.get(
+        filename = file_url.split("/")[-1]
+
+        folder = Path(destination_folder)
+
+        folder.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        file_path = folder / filename
+
+        if file_path.exists():
+            return file_path
+
+        response = self.session.get(
             file_url,
             timeout=self.timeout,
         )
 
         response.raise_for_status()
 
-        filename = file_url.split("/")[-1]
-
-        folder = Path(destination_folder)
-        folder.mkdir(parents=True, exist_ok=True)
-
-        file_path = folder / filename
-
-        file_path.write_bytes(response.content)
+        file_path.write_bytes(
+            response.content
+        )
 
         return file_path
 
@@ -64,35 +118,68 @@ class AdmieClient:
         file_category: str,
         destination_folder: str,
     ) -> list[Path]:
-
         files = self.get_files(
             start_date=start_date,
             end_date=end_date,
             file_category=file_category,
         )
 
-        downloaded_files = []
+        total_files = len(files)
 
-        for file in files:
-            file_path = self.download_file(
-                file_url=file["file_path"],
-                destination_folder=destination_folder,
+        print(
+            f"{total_files} files available "
+            f"from ADMIE."
+        )
+
+        file_paths = []
+
+        for index, file in enumerate(
+            files,
+            start=1,
+        ):
+            filename = (
+                file["file_path"]
+                .split("/")[-1]
             )
 
-            downloaded_files.append(file_path)
+            destination_path = (
+                Path(destination_folder)
+                / filename
+            )
 
-        return downloaded_files
+            if destination_path.exists():
+                print(
+                    f"[{index}/{total_files}] "
+                    f"Already exists: {filename}"
+                )
+            else:
+                print(
+                    f"[{index}/{total_files}] "
+                    f"Downloading: {filename}"
+                )
 
+            try:
+                file_path = self.download_file(
+                    file_url=file["file_path"],
+                    destination_folder=destination_folder,
+                )
 
-if __name__ == "__main__":
-    client = AdmieClient()
+            except requests.RequestException as exc:
+                print(
+                    "\nDownload failed after retries:"
+                )
+                print(filename)
+                print(exc)
 
-    downloaded_files = client.download_files(
-        start_date="2026-01-15",
-        end_date="2026-01-20",
-        file_category="RealTimeSCADASystemLoad",
-        destination_folder="data/raw",
-    )
+                raise
 
-    for file_path in downloaded_files:
-        print(f"Saved to: {file_path}")
+            file_paths.append(
+                file_path
+            )
+
+            # Small delay to avoid hammering
+            # the ADMIE server.
+            sleep(0.1)
+
+        return file_paths
+
