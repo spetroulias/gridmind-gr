@@ -26,3 +26,8 @@ data/processed/*
 
 # macOS
 .DS_Storex
+
+# Trained models
+models/*.joblib
+
+.DS_Store

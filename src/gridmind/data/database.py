@@ -18,9 +18,7 @@ def get_connection():
     )
 
 
-def save_system_load(
-    df: pd.DataFrame,
-) -> None:
+def save_system_load(df: pd.DataFrame) -> None:
     query = """
         INSERT INTO system_load (
             date,
@@ -29,7 +27,6 @@ def save_system_load(
             crete_flow_mwh
         )
         VALUES (%s, %s, %s, %s)
-
         ON CONFLICT (date, period)
         DO UPDATE SET
             net_load_mwh = EXCLUDED.net_load_mwh,
@@ -49,17 +46,11 @@ def save_system_load(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                query,
-                rows,
-            )
-
+            cursor.executemany(query, rows)
         connection.commit()
 
 
-def save_res(
-    df: pd.DataFrame,
-) -> None:
+def save_res(df: pd.DataFrame) -> None:
     query = """
         INSERT INTO res_production (
             date,
@@ -67,7 +58,6 @@ def save_res(
             res_mwh
         )
         VALUES (%s, %s, %s)
-
         ON CONFLICT (date, period)
         DO UPDATE SET
             res_mwh = EXCLUDED.res_mwh,
@@ -85,17 +75,11 @@ def save_res(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                query,
-                rows,
-            )
-
+            cursor.executemany(query, rows)
         connection.commit()
 
 
-def save_generation(
-    df: pd.DataFrame,
-) -> None:
+def save_generation(df: pd.DataFrame) -> None:
     query = """
         INSERT INTO generation_actual (
             date,
@@ -105,12 +89,7 @@ def save_generation(
             production_mwh
         )
         VALUES (%s, %s, %s, %s, %s)
-
-        ON CONFLICT (
-            date,
-            period,
-            unit_name
-        )
+        ON CONFLICT (date, period, unit_name)
         DO UPDATE SET
             technology = EXCLUDED.technology,
             production_mwh = EXCLUDED.production_mwh,
@@ -130,9 +109,5 @@ def save_generation(
 
     with get_connection() as connection:
         with connection.cursor() as cursor:
-            cursor.executemany(
-                query,
-                rows,
-            )
-
+            cursor.executemany(query, rows)
         connection.commit()

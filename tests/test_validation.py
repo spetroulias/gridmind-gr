@@ -29,6 +29,6 @@ def test_invalid_period_fails():
 
     with pytest.raises(
         ValueError,
-        match="Period must be between 1 and 25",
+        match="Invalid system load period",
     ):
         validate_system_load(df)
