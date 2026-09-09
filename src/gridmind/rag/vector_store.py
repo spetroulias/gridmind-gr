@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 class QdrantSettings(BaseSettings):
     """Pydantic Settings model that automatically reads configuration variables
-
     (only read not construct) from environment variables or a .env file with
     default fallbacks.
     """
@@ -42,7 +41,6 @@ class QdrantSettings(BaseSettings):
 
 class SearchResult(BaseModel):
     """Pydantic model representing a structured semantic search result returned
-
     to the RAG retriever module (Context of rag before the answer).
     """
 
@@ -55,19 +53,16 @@ class SearchResult(BaseModel):
 
 class QdrantVectorStore:
     """Wrapper class around QdrantClient that manages collection
-
     initialization, vector point upserts, and semantic similarity queries.
     """
 
     def __init__(self, settings: Optional[QdrantSettings] = None):
         """Constructor method that initializes the Qdrant Client using Pydantic
-
         Settings.
 
         Args:
             settings (Optional[QdrantSettings]): Pydantic settings instance.
-                                                  Instantiates default settings
-                                                  if None.
+                Instantiates default settings if None.
         """
         self.settings = settings or QdrantSettings()
 
@@ -93,7 +88,6 @@ class QdrantVectorStore:
 
     def init_collection(self) -> None:
         """Verifies if the specified vector collection exists in Qdrant; creates
-
         a new collection if it does not exist.
         """
         try:
@@ -148,7 +142,6 @@ class QdrantVectorStore:
         self, query_vector: List[float], limit: int = 4
     ) -> List[SearchResult]:
         """Performs a cosine similarity search against the vector store using a
-
         query vector.
 
         Args:
@@ -161,9 +154,10 @@ class QdrantVectorStore:
             List[SearchResult]: List of validated Pydantic SearchResult objects.
         """
         try:
-            raw_results = self.client.search(
+            # Χρήση της νέας συστηνόμενης μεθόδου query_points αντί της καταργημένης search
+            query_response = self.client.query_points(
                 collection_name=self.settings.collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=limit,
             )
 
@@ -174,7 +168,7 @@ class QdrantVectorStore:
                     score=res.score,
                     payload=res.payload or {},
                 )
-                for res in raw_results
+                for res in query_response.points
             ]
 
             return validated_results

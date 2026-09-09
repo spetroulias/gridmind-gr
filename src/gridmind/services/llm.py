@@ -2,80 +2,64 @@ import logging
 import os
 from typing import Optional
 
-from openai import OpenAI
+from groq import Groq
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Configure logger for module execution tracking
 logger = logging.getLogger(__name__)
 
 
 class LLMSettings(BaseSettings):
-    """Pydantic Settings model that automatically retrieves OpenAI configuration
+    """Pydantic Settings model for Groq API configuration."""
 
-    and credentials from environment variables or a local .env file.
-    """
-
-    openai_api_key: Optional[str] = Field(
-        default=None, description="OpenAI API authentication key"
+    groq_api_key: Optional[str] = Field(
+        default=None, description="Groq API authentication key"
     )
     model_name: str = Field(
-        default="gpt-4o-mini",
-        description="Target OpenAI model identifier (e.g., gpt-4o, gpt-4o-mini)",
+        default="llama-3.3-70b-versatile",
+        description="Target Groq model identifier",
     )
     temperature: float = Field(
-        default=0.2,
-        description="Sampling temperature (lower values ensure factual energy analysis)",
+        default=0.2, description="Sampling temperature"
     )
     max_tokens: int = Field(
-        default=1024, description="Maximum token generation limit per response"
+        default=1024, description="Maximum token generation limit"
     )
 
-    # Σύνταξη Pydantic v2 για να αγνοεί επιπλέον μεταβλητές του .env (π.χ. Qdrant settings)
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
 
 
 class LLMService:
-    """Wrapper class responsible for handling text generation requests using
-
-    OpenAI's API.
-    """
+    """Wrapper class responsible for handling text generation requests using Groq API."""
 
     def __init__(self, settings: Optional[LLMSettings] = None):
-        """Constructor method initializing the OpenAI Client instance."""
         self.settings = settings or LLMSettings()
 
-        # Resolve API Key from Pydantic settings or environment variables
-        api_key = self.settings.openai_api_key or os.getenv("OPENAI_API_KEY")
+        api_key = self.settings.groq_api_key or os.getenv("GROQ_API_KEY")
         if not api_key:
-            logger.warning(
-                "OPENAI_API_KEY is not set. LLM inference calls will fail until provided."
-            )
+            logger.warning("GROQ_API_KEY is not set.")
 
-        # Initialize official OpenAI client
-        self.client = OpenAI(api_key=api_key)
-        logger.info(
-            f"Initialized LLMService with OpenAI model: {self.settings.model_name}"
-        )
+        self.client = Groq(api_key=api_key)
+        
+        # Εκτύπωση διαθέσιμων μοντέλων στο terminal για verification
+        try:
+            available_models = [m.id for m in self.client.models.list().data]
+            logger.info(f"Available Groq models for your API key: {available_models}")
+            if self.settings.model_name not in available_models and available_models:
+                logger.warning(
+                    f"Model {self.settings.model_name} not found in available models. "
+                    f"Falling back to: {available_models[0]}"
+                )
+                self.settings.model_name = available_models[0]
+        except Exception as e:
+            logger.error(f"Could not fetch Groq models list: {e}")
 
     def generate_response(self, system_prompt: str, user_prompt: str) -> str:
-        """Executes a chat completion query against the OpenAI Chat API.
-
-        Args:
-            system_prompt (str): Instructions defining system identity, role,
-              and context constraints.
-            user_prompt (str): The prompt containing the user query and
-              retrieved context chunks.
-
-        Returns:
-            str: Generated text response from the OpenAI model.
-        """
+        """Executes a chat completion query against Groq API."""
         try:
-            logger.info(
-                f"Sending chat completion request to OpenAI ({self.settings.model_name})..."
-            )
+            logger.info(f"Sending request to Groq using model: {self.settings.model_name}")
 
             response = self.client.chat.completions.create(
                 model=self.settings.model_name,
@@ -87,10 +71,8 @@ class LLMService:
                 max_tokens=self.settings.max_tokens,
             )
 
-            generated_text = response.choices[0].message.content
-            logger.info("Successfully received LLM response from OpenAI.")
-            return generated_text
+            return response.choices[0].message.content
 
         except Exception as e:
-            logger.error(f"Error during OpenAI API text generation: {e}")
+            logger.error(f"Error during Groq API text generation: {e}")
             raise e
