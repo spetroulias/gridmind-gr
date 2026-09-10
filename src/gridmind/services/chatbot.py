@@ -1,6 +1,5 @@
 import logging
-import re
-from typing import List, Optional
+from typing import List
 from pydantic import BaseModel
 
 from gridmind.rag.retriever_db import DatabaseRetriever
@@ -24,38 +23,29 @@ class GridMindChatbot:
         self.vector_retriever = RAGRetriever()
         self.db_retriever = DatabaseRetriever()
 
-    def _extract_date(self, text: str) -> Optional[str]:
-        """Parses D/M/YY, D/M/YYYY or YYYY-MM-DD and normalizes to YYYY-MM-DD."""
-        match = re.search(r'(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})', text)
-        if match:
-            day, month, year = match.groups()
-            if len(year) == 2:
-                year = f"20{year}"
-            return f"{year}-{int(month):02d}-{int(day):02d}"
-        return None
-
     def answer_question(self, user_message: str = None, question: str = None, **kwargs) -> ChatResponse:
-        # Δέχεται είτε 'user_message' είτε 'question'
         query_text = user_message or question or ""
         
         context = ""
         sources = []
 
-        # 1. Parsing ημερομηνίας & Query στην PostgreSQL (system_load)
-        extracted_date = self._extract_date(query_text)
-        if extracted_date:
-            logger.info(f"Target date parsed from query: {extracted_date}")
-            db_data = self.db_retriever.get_consumption_by_date(extracted_date)
-            if db_data:
-                context += f"\n[PostgreSQL System Load Data]: {db_data}\n"
-                sources.append(f"PostgreSQL Table: system_load ({extracted_date})")
-
-        # 2. Vector Search στο Qdrant (Unstructured Context)
+        # 1. Ανάκτηση από PostgreSQL μέσω του DatabaseRetriever (Tabular Data)
         try:
-            vector_docs = self.vector_retriever.retrieve(query_text)
-            if vector_docs:
-                for doc in vector_docs:
-                    context += f"\n[Document Chunk]: {doc.page_content}\n"
+            db_context, db_sources = self.db_retriever.get_consumption_by_date(query_text)
+            if db_context:
+                context += f"\n[PostgreSQL System Load Data]: {db_context}\n"
+                sources.extend(db_sources)
+        except Exception as e:
+            logger.error(f"Database retrieval error: {e}")
+
+        # 2. Vector Search στο Qdrant μέσω της retrieve_context
+        try:
+            vector_results = self.vector_retriever.retrieve_context(query_text)
+            if vector_results:
+                for res in vector_results:
+                    # Προσαρμογή στο SearchResult schema (res.text ή res.payload)
+                    text_content = getattr(res, 'text', str(res))
+                    context += f"\n[Document Chunk]: {text_content}\n"
                     sources.append("Qdrant Vector Index")
         except Exception as e:
             logger.warning(f"Qdrant query bypassed or empty: {e}")
@@ -75,5 +65,4 @@ class GridMindChatbot:
             sources=sources
         )
 
-    # Alias για συμβατότητα με το API router (chat.py)
     ask = answer_question
