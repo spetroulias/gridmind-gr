@@ -1,98 +1,53 @@
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
-from sklearn.metrics import (
-    mean_absolute_error,
-    mean_squared_error,
-)
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
-from gridmind.models.res_forecast import (
-    FEATURE_COLS,
-    build_model,
-    build_model_data,
-)
+from gridmind.models.res_forecast import FEATURE_COLS, build_model_data as load_model_data
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-
-RESULTS_PATH = (
-    PROJECT_ROOT
-    / "data"
-    / "forecasts"
-    / "res_backtest_results.csv"
-)
+RF_PARAMS = {
+    "n_estimators": 300,
+    "max_depth": 20,
+    "min_samples_leaf": 2,
+    "random_state": 42,
+    "n_jobs": -1,
+}
 
 BACKTEST_START = pd.Timestamp("2026-01-01")
 BACKTEST_END = pd.Timestamp("2026-09-01")
 
 
-def evaluate(y_true, y_pred):
-    y_true = np.asarray(
-        y_true,
-        dtype=float,
-    )
+def build_model() -> RandomForestRegressor:
+    return RandomForestRegressor(**RF_PARAMS)
 
-    y_pred = np.asarray(
-        y_pred,
-        dtype=float,
-    )
 
-    mae = mean_absolute_error(
-        y_true,
-        y_pred,
-    )
+def evaluate(y_true, y_pred) -> dict:
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
 
-    rmse = np.sqrt(
-        mean_squared_error(
-            y_true,
-            y_pred,
-        )
-    )
+    mae = mean_absolute_error(y_true, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_true, y_pred))
 
     denominator = np.abs(y_true).sum()
-
-    if denominator == 0:
-        wape = np.nan
-    else:
-        wape = (
-            np.abs(y_true - y_pred).sum()
-            / denominator
-        ) * 100
+    wape = (
+        np.nan
+        if denominator == 0
+        else np.abs(y_true - y_pred).sum() / denominator * 100
+    )
 
     return {
         "MAE": round(mae, 2),
         "RMSE": round(rmse, 2),
-        "WAPE": (
-            round(wape, 2)
-            if not np.isnan(wape)
-            else np.nan
-        ),
+        "WAPE": round(wape, 2) if not np.isnan(wape) else np.nan,
     }
 
 
-def run_backtest():
-    print()
-    print("======================================")
-    print("       RES WALK-FORWARD BACKTEST")
-    print("======================================")
-    print()
-
-    df = build_model_data()
-
-    available_end = (
-        df["timestamp"].max()
-        + pd.Timedelta(hours=1)
-    )
-
-    backtest_end = min(
-        BACKTEST_END,
-        available_end,
-    )
-
+def run_backtest(df: pd.DataFrame) -> pd.DataFrame:
+    """Run an expanding-window monthly backtest for 2026."""
     month_starts = pd.date_range(
         start=BACKTEST_START,
-        end=backtest_end,
+        end=BACKTEST_END,
         freq="MS",
         inclusive="left",
     )
@@ -100,59 +55,27 @@ def run_backtest():
     results = []
 
     for test_start in month_starts:
-        test_end = (
-            test_start
-            + pd.offsets.MonthBegin(1)
-        )
+        test_end = test_start + pd.offsets.MonthBegin(1)
 
-        # Walk-forward evaluation:
-        # train only on observations before the test month.
-        train = df[
-            df["timestamp"] < test_start
-        ].copy()
-
+        train = df[df["timestamp"] < test_start].copy()
         test = df[
             (df["timestamp"] >= test_start)
             & (df["timestamp"] < test_end)
         ].copy()
 
         if train.empty:
-            print(
-                f"Skipping {test_start:%Y-%m}: no training data."
-            )
+            print(f"Skipping {test_start:%Y-%m}: no training data.")
             continue
 
         if test.empty:
-            print(
-                f"Skipping {test_start:%Y-%m}: no test data."
-            )
+            print(f"Skipping {test_start:%Y-%m}: no test data.")
             continue
 
         model = build_model()
+        model.fit(train[FEATURE_COLS], train["target"])
 
-        X_train = train[FEATURE_COLS]
-        y_train = train["target"]
-
-        X_test = test[FEATURE_COLS]
-        y_test = test["target"]
-
-        model.fit(
-            X_train,
-            y_train,
-        )
-
-        predictions = model.predict(X_test)
-
-        # RES production cannot be negative.
-        predictions = np.maximum(
-            predictions,
-            0.0,
-        )
-
-        metrics = evaluate(
-            y_true=y_test,
-            y_pred=predictions,
-        )
+        predictions = model.predict(test[FEATURE_COLS])
+        metrics = evaluate(test["target"], predictions)
 
         result = {
             "month": test_start.strftime("%Y-%m"),
@@ -160,7 +83,6 @@ def run_backtest():
             "test_rows": len(test),
             **metrics,
         }
-
         results.append(result)
 
         print(
@@ -173,67 +95,30 @@ def run_backtest():
     results_df = pd.DataFrame(results)
 
     if results_df.empty:
-        raise ValueError(
-            "RES backtest produced no results."
-        )
-
-    print()
-    print("======================================")
-    print("          RES BACKTEST SUMMARY")
-    print("======================================")
-    print(
-        f"Average MAE:  "
-        f"{results_df['MAE'].mean():.2f} MWh"
-    )
-    print(
-        f"Average RMSE: "
-        f"{results_df['RMSE'].mean():.2f} MWh"
-    )
-    print(
-        f"Average WAPE: "
-        f"{results_df['WAPE'].mean():.2f}%"
-    )
-
-    best = results_df.loc[
-        results_df["WAPE"].idxmin()
-    ]
-
-    worst = results_df.loc[
-        results_df["WAPE"].idxmax()
-    ]
-
-    print(
-        f"Best month: "
-        f"{best['month']} "
-        f"({best['WAPE']:.2f}% WAPE)"
-    )
-
-    print(
-        f"Worst month: "
-        f"{worst['month']} "
-        f"({worst['WAPE']:.2f}% WAPE)"
-    )
-
-    RESULTS_PATH.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    results_df.to_csv(
-        RESULTS_PATH,
-        index=False,
-    )
-
-    print()
-    print(
-        f"Results saved to: {RESULTS_PATH}"
-    )
+        raise ValueError("RES backtest produced no results.")
 
     return results_df
 
 
-def main():
-    run_backtest()
+def print_summary(results: pd.DataFrame) -> None:
+    best = results.loc[results["WAPE"].idxmin()]
+    worst = results.loc[results["WAPE"].idxmax()]
+
+    print("\nRES backtest summary")
+    print(f"Average MAE:  {results['MAE'].mean():.2f} MWh")
+    print(f"Average RMSE: {results['RMSE'].mean():.2f} MWh")
+    print(f"Average WAPE: {results['WAPE'].mean():.2f}%")
+    print(f"Best month:   {best['month']} ({best['WAPE']:.2f}% WAPE)")
+    print(f"Worst month:  {worst['month']} ({worst['WAPE']:.2f}% WAPE)")
+
+
+def main() -> None:
+    print("Loading model data from PostgreSQL...")
+    df = load_model_data()
+
+    print("\nRunning monthly walk-forward backtest...")
+    results = run_backtest(df)
+    print_summary(results)
 
 
 if __name__ == "__main__":

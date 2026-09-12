@@ -67,9 +67,9 @@ def build_model_data(historical=None):
     df["day_of_week"] = df["timestamp"].dt.dayofweek
     df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
 
-    df["res_lag_24"] = df["res_mwh"].shift(24)
-    df["res_lag_48"] = df["res_mwh"].shift(48)
-    df["res_lag_168"] = df["res_mwh"].shift(168)
+    df["res_lag_24"] = (df["timestamp"] - pd.Timedelta(hours=24)).map(df.set_index("timestamp")["res_mwh"])
+    df["res_lag_48"] = (df["timestamp"] - pd.Timedelta(hours=48)).map(df.set_index("timestamp")["res_mwh"])
+    df["res_lag_168"] = (df["timestamp"] - pd.Timedelta(hours=168)).map(df.set_index("timestamp")["res_mwh"])
 
     model_data = (
         df[["timestamp", "target", *FEATURE_COLS]]

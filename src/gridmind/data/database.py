@@ -1,21 +1,40 @@
 import os
+from functools import lru_cache
 import pandas as pd
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 
 load_dotenv()
 
+def get_database_url():
+    from sqlalchemy.engine import URL
+    return URL.create(
+        "postgresql+psycopg",
+        username=os.getenv("POSTGRES_USER", "gridmind"),
+        password=os.getenv("POSTGRES_PASSWORD", "gridmind"),
+        host=os.getenv("POSTGRES_HOST", "localhost"),
+        port=int(os.getenv("POSTGRES_PORT", "5432")),
+        database=os.getenv("POSTGRES_DB", "gridmind"),
+    )
+
+
+@lru_cache(maxsize=1)
 def get_engine():
-    user = os.getenv("POSTGRES_USER", "gridmind")
-    password = os.getenv("POSTGRES_PASSWORD", "gridmind")
-    host = os.getenv("POSTGRES_HOST", "localhost")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    db_name = os.getenv("POSTGRES_DB", "gridmind")
-    
-    db_url = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
-    return create_engine(db_url)
+    return create_engine(get_database_url(), pool_pre_ping=True, connect_args={"connect_timeout": 5})
+
+
+def get_connection():
+    """Return a psycopg connection; its context manager commits and closes."""
+    import psycopg
+    url = get_database_url()
+    return psycopg.connect(user=url.username, password=url.password,
+                           host=url.host, port=url.port, dbname=url.database,
+                           connect_timeout=5)
+
 
 def save_system_load(df: pd.DataFrame) -> None:
+    if df.empty:
+        return
     engine = get_engine()
     
     # Μετατροπή ημερομηνιών σε string/date format
@@ -38,6 +57,8 @@ def save_system_load(df: pd.DataFrame) -> None:
         connection.execute(query, records)
 
 def save_res(df: pd.DataFrame) -> None:
+    if df.empty:
+        return
     engine = get_engine()
     df_to_save = df.copy()
     if 'date' in df_to_save.columns:
@@ -57,6 +78,8 @@ def save_res(df: pd.DataFrame) -> None:
         connection.execute(query, records)
 
 def save_generation(df: pd.DataFrame) -> None:
+    if df.empty:
+        return
     engine = get_engine()
     df_to_save = df.copy()
     if 'date' in df_to_save.columns:

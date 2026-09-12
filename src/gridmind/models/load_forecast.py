@@ -50,18 +50,18 @@ def load_history() -> pd.DataFrame:
     return df
 
 
-def load_model_data() -> pd.DataFrame:
+def load_model_data(historical=None) -> pd.DataFrame:
     """Create the model-ready load dataset used by backtesting."""
-    df = load_history().copy()
+    df = (load_history() if historical is None else historical).copy()
 
     df["target"] = df["load_mwh"]
     df["hour"] = df["timestamp"].dt.hour
     df["day_of_week"] = df["timestamp"].dt.dayofweek
     df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
 
-    df["load_lag_24"] = df["load_mwh"].shift(24)
-    df["load_lag_48"] = df["load_mwh"].shift(48)
-    df["load_lag_168"] = df["load_mwh"].shift(168)
+    df["load_lag_24"] = (df["timestamp"] - pd.Timedelta(hours=24)).map(df.set_index("timestamp")["load_mwh"])
+    df["load_lag_48"] = (df["timestamp"] - pd.Timedelta(hours=48)).map(df.set_index("timestamp")["load_mwh"])
+    df["load_lag_168"] = (df["timestamp"] - pd.Timedelta(hours=168)).map(df.set_index("timestamp")["load_mwh"])
 
     model_data = (
         df[["timestamp", "target", *FEATURE_COLS]]
@@ -79,6 +79,20 @@ def load_model_data() -> pd.DataFrame:
     )
 
     return model_data
+
+
+def train_model(historical, save=False):
+    """Train on the supplied history only, optionally saving a reproducible artifact."""
+    from sklearn.ensemble import RandomForestRegressor
+    training = load_model_data(historical)
+    model = RandomForestRegressor(n_estimators=300, max_depth=20,
+                                  min_samples_leaf=2, random_state=42, n_jobs=-1)
+    model.fit(training[FEATURE_COLS], training["target"])
+    if save:
+        MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump({"model": model, "features": FEATURE_COLS,
+                     "trained_through": str(training["timestamp"].max())}, MODEL_PATH)
+    return model
 
 
 def load_saved_model():
@@ -261,6 +275,7 @@ def forecast_date(
 
     if target_date <= last_date:
         print(f"Mode: historical simulation ({target_date.date()})")
+        model = train_model(historical[historical["timestamp"] < target_date])
         return make_historical_forecast(
             model=model,
             historical=historical,
@@ -359,10 +374,11 @@ def main() -> None:
         help="Forecast N days after the latest historical date",
     )
 
+    parser.add_argument("--train", action="store_true", help="Train and save the load model")
     args = parser.parse_args()
 
-    model = load_saved_model()
     historical = load_history()
+    model = train_model(historical, save=True) if args.train else load_saved_model()
 
     last_date = historical["timestamp"].max().normalize()
     target_date = _parse_target_date(args, last_date)
@@ -440,18 +456,18 @@ def load_history() -> pd.DataFrame:
     return df
 
 
-def load_model_data() -> pd.DataFrame:
+def load_model_data(historical=None) -> pd.DataFrame:
     """Create the model-ready load dataset used by backtesting."""
-    df = load_history().copy()
+    df = (load_history() if historical is None else historical).copy()
 
     df["target"] = df["load_mwh"]
     df["hour"] = df["timestamp"].dt.hour
     df["day_of_week"] = df["timestamp"].dt.dayofweek
     df["is_weekend"] = (df["day_of_week"] >= 5).astype(int)
 
-    df["load_lag_24"] = df["load_mwh"].shift(24)
-    df["load_lag_48"] = df["load_mwh"].shift(48)
-    df["load_lag_168"] = df["load_mwh"].shift(168)
+    df["load_lag_24"] = (df["timestamp"] - pd.Timedelta(hours=24)).map(df.set_index("timestamp")["load_mwh"])
+    df["load_lag_48"] = (df["timestamp"] - pd.Timedelta(hours=48)).map(df.set_index("timestamp")["load_mwh"])
+    df["load_lag_168"] = (df["timestamp"] - pd.Timedelta(hours=168)).map(df.set_index("timestamp")["load_mwh"])
 
     model_data = (
         df[["timestamp", "target", *FEATURE_COLS]]
@@ -651,6 +667,7 @@ def forecast_date(
 
     if target_date <= last_date:
         print(f"Mode: historical simulation ({target_date.date()})")
+        model = train_model(historical[historical["timestamp"] < target_date])
         return make_historical_forecast(
             model=model,
             historical=historical,
@@ -749,10 +766,11 @@ def main() -> None:
         help="Forecast N days after the latest historical date",
     )
 
+    parser.add_argument("--train", action="store_true", help="Train and save the load model")
     args = parser.parse_args()
 
-    model = load_saved_model()
     historical = load_history()
+    model = train_model(historical, save=True) if args.train else load_saved_model()
 
     last_date = historical["timestamp"].max().normalize()
     target_date = _parse_target_date(args, last_date)

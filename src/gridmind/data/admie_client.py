@@ -1,5 +1,9 @@
 
 from pathlib import Path
+from urllib.parse import urljoin, urlparse
+from datetime import date
+import tempfile
+import os
 from time import sleep
 from typing import Any
 
@@ -58,6 +62,8 @@ class AdmieClient:
         end_date: str,
         file_category: str,
     ) -> list[dict[str, Any]]:
+        if date.fromisoformat(start_date) > date.fromisoformat(end_date):
+            raise ValueError("start_date must not be after end_date")
         url = (
             f"{self.BASE_URL}/"
             "getOperationMarketFilewRange"
@@ -84,7 +90,10 @@ class AdmieClient:
         file_url: str,
         destination_folder: str,
     ) -> Path:
-        filename = file_url.split("/")[-1]
+        file_url = urljoin(self.BASE_URL, file_url)
+        filename = Path(urlparse(file_url).path).name
+        if not filename or filename in {".", ".."}:
+            raise ValueError("Invalid ADMIE file URL")
 
         folder = Path(destination_folder)
 
@@ -95,7 +104,7 @@ class AdmieClient:
 
         file_path = folder / filename
 
-        if file_path.exists():
+        if file_path.exists() and file_path.stat().st_size > 0:
             return file_path
 
         response = self.session.get(
@@ -105,9 +114,12 @@ class AdmieClient:
 
         response.raise_for_status()
 
-        file_path.write_bytes(
-            response.content
-        )
+        if not response.content:
+            raise ValueError("ADMIE returned an empty file")
+        with tempfile.NamedTemporaryFile(dir=folder, delete=False) as temporary:
+            temporary.write(response.content)
+            temporary_path = temporary.name
+        os.replace(temporary_path, file_path)
 
         return file_path
 

@@ -78,7 +78,7 @@ class DatabaseRetriever:
             sql = sa.text("""
                 SELECT date, SUM(net_load_mwh) as total_load
                 FROM system_load
-                WHERE date = :date_val
+                WHERE date = :date_val AND period BETWEEN 1 AND 24
                 GROUP BY date;
             """)
             

@@ -2,7 +2,8 @@ from datetime import timedelta
 
 import pandas as pd
 
-from gridmind.data.database import get_connection
+from gridmind.data.database import get_engine
+from sqlalchemy import text
 
 
 VALID_TECHNOLOGIES = {
@@ -37,6 +38,8 @@ def _build_timestamp(df: pd.DataFrame) -> pd.DataFrame:
 
 def _date_range_mask(df: pd.DataFrame, start_date, end_date):
     start = pd.to_datetime(start_date)
+    if start > pd.to_datetime(end_date):
+        raise ValueError("start_date must not be after end_date")
     end_exclusive = pd.to_datetime(end_date) + timedelta(days=1)
 
     return (
@@ -48,7 +51,7 @@ def _date_range_mask(df: pd.DataFrame, start_date, end_date):
 # Load
 
 
-def load_historical_data() -> pd.DataFrame:
+def load_historical_data(start_date=None, end_date=None) -> pd.DataFrame:
     """Load the standard 24-hour system load time series."""
     query = """
         SELECT
@@ -57,11 +60,13 @@ def load_historical_data() -> pd.DataFrame:
             net_load_mwh
         FROM system_load
         WHERE period BETWEEN 1 AND 24
+          AND (CAST(:start_date AS date) IS NULL OR date >= CAST(:start_date AS date))
+          AND (CAST(:end_date AS date) IS NULL OR date <= CAST(:end_date AS date))
         ORDER BY date, period;
     """
 
-    with get_connection() as connection:
-        df = pd.read_sql_query(query, connection)
+    with get_engine().connect() as connection:
+        df = pd.read_sql_query(text(query), connection, params={"start_date": start_date, "end_date": end_date})
 
     df = _build_timestamp(df)
     df = df.rename(columns={"net_load_mwh": "load_mwh"})
@@ -77,7 +82,7 @@ def get_historical_load(
     """Return actual system load for a date range."""
     _validate_hour(hour)
 
-    df = load_historical_data()
+    df = load_historical_data(start_date, end_date)
     result = df[_date_range_mask(df, start_date, end_date)].copy()
 
     if hour is not None:
@@ -126,7 +131,7 @@ def get_peak_load(start_date, end_date):
 # RES
 
 
-def load_historical_res_data() -> pd.DataFrame:
+def load_historical_res_data(start_date=None, end_date=None) -> pd.DataFrame:
     """Load the standard 24-hour RES production time series."""
     query = """
         SELECT
@@ -135,11 +140,13 @@ def load_historical_res_data() -> pd.DataFrame:
             res_mwh
         FROM res_production
         WHERE period BETWEEN 1 AND 24
+          AND (CAST(:start_date AS date) IS NULL OR date >= CAST(:start_date AS date))
+          AND (CAST(:end_date AS date) IS NULL OR date <= CAST(:end_date AS date))
         ORDER BY date, period;
     """
 
-    with get_connection() as connection:
-        df = pd.read_sql_query(query, connection)
+    with get_engine().connect() as connection:
+        df = pd.read_sql_query(text(query), connection, params={"start_date": start_date, "end_date": end_date})
 
     df = _build_timestamp(df)
 
@@ -154,7 +161,7 @@ def get_historical_res(
     """Return actual RES production for a date range."""
     _validate_hour(hour)
 
-    df = load_historical_res_data()
+    df = load_historical_res_data(start_date, end_date)
     result = df[_date_range_mask(df, start_date, end_date)].copy()
 
     if hour is not None:
@@ -203,7 +210,7 @@ def get_peak_res(start_date, end_date):
 # Generation
 
 
-def load_generation_data() -> pd.DataFrame:
+def load_generation_data(start_date=None, end_date=None) -> pd.DataFrame:
     """Load unit-level generation actuals for periods 1-24."""
     query = """
         SELECT
@@ -214,11 +221,13 @@ def load_generation_data() -> pd.DataFrame:
             production_mwh
         FROM generation_actual
         WHERE period BETWEEN 1 AND 24
+          AND (CAST(:start_date AS date) IS NULL OR date >= CAST(:start_date AS date))
+          AND (CAST(:end_date AS date) IS NULL OR date <= CAST(:end_date AS date))
         ORDER BY date, period, technology, unit_name;
     """
 
-    with get_connection() as connection:
-        df = pd.read_sql_query(query, connection)
+    with get_engine().connect() as connection:
+        df = pd.read_sql_query(text(query), connection, params={"start_date": start_date, "end_date": end_date})
 
     df = _build_timestamp(df)
 
@@ -237,7 +246,7 @@ def get_historical_generation(
     _validate_hour(hour)
     _validate_technology(technology)
 
-    df = load_generation_data()
+    df = load_generation_data(start_date, end_date)
     result = df[_date_range_mask(df, start_date, end_date)].copy()
 
     if technology is not None:

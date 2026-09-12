@@ -1,25 +1,20 @@
-import logging
-from typing import Any, Dict
+from datetime import date
 from fastapi import APIRouter, HTTPException
+from gridmind.services.analytics import get_analytics
 
-logger = logging.getLogger(__name__)
-
-# Ορίζουμε το router τοπικά (ΔΕΝ κάνουμε import από το forecasts!)
 router = APIRouter(prefix="/forecasts", tags=["Forecasts"])
 
 
-@router.get("/", response_model=Dict[str, Any])
-async def get_forecast_status() -> Dict[str, Any]:
-    """Endpoint για επιβεβαίωση της λειτουργίας των ενεργειακών προβλέψεων."""
+@router.get("/")
+def forecast_status():
+    return {"status": "available", "endpoint": "/api/v1/forecasts/load?date=YYYY-MM-DD"}
+
+
+@router.get("/load")
+def load_forecast(date: date):
     try:
-        logger.info("Fetching energy forecast status...")
-        return {
-            "status": "success",
-            "message": "GridMind Forecasts API is active.",
-            "available_models": ["load_forecast", "res_forecast"],
-        }
-    except Exception as e:
-        logger.error(f"Error fetching forecast status: {e}")
-        raise HTTPException(
-            status_code=500, detail="Failed to retrieve forecast data."
-        )
+        return get_analytics("forecast", date, date)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Forecast unavailable. Check PostgreSQL and historical coverage.") from exc

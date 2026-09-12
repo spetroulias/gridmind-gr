@@ -1,143 +1,108 @@
-import streamlit as st
+"""Chat and charts for the three ADMIE datasets."""
+import os
+import pandas as pd
 import requests
-import json
+import streamlit as st
+from dotenv import load_dotenv
 
-# Ρύθμιση σελίδας
-st.set_page_config(
-    page_title="GridMind AI Dashboard",
-    page_icon="⚡",
-    layout="wide"
-)
+load_dotenv()
+st.set_page_config(page_title="GridMind GR", page_icon="⚡", layout="wide")
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000/api/v1").rstrip("/")
+st.title("⚡ GridMind GR")
+st.caption("Historical net system load without Crete, renewable production, generation by source and load forecasts.")
 
-# Backend URL Configuration
-API_BASE_URL = "http://127.0.0.1:8000/api/v1"
 
-st.title("⚡ GridMind Energy AI Dashboard")
+def render(result, widget_key="direct"):
+    st.markdown(result["answer"])
+    data = result.get("data", [])
+    if data:
+        frame = pd.DataFrame(data)
+        frame["timestamp"] = pd.to_datetime(frame["timestamp"])
+        if "technology" in frame:
+            chart = frame.pivot_table(index="timestamp", columns="technology", values="production_mwh", aggfunc="sum")
+            st.area_chart(chart, y_label="MWh per interval")
+            st.bar_chart(frame.groupby("technology")["production_mwh"].sum(), y_label="MWh")
+        else:
+            value = next(c for c in ["load_mwh", "res_mwh", "forecast_mwh"] if c in frame)
+            columns = [value]
+            if {"lower_mwh", "upper_mwh"}.issubset(frame.columns):
+                columns += ["lower_mwh", "upper_mwh"]
+                st.caption("Lower and upper lines show historical error bounds, not guaranteed future limits.")
+            st.line_chart(frame.set_index("timestamp")[columns], y_label="MWh per interval")
+        with st.expander("View data"):
+            st.dataframe(frame, hide_index=True)
+        st.download_button("Download CSV", frame.to_csv(index=False), "gridmind.csv", "text/csv", key=f"csv-{widget_key}")
+    if result.get("forecast_metadata"):
+        with st.expander("Forecast method and historical validation"):
+            st.json(result["forecast_metadata"])
+    if result.get("sources"):
+        st.caption("Sources: " + "; ".join(result["sources"]))
 
-# Sidebar Navigation για όλα τα Endpoints
-st.sidebar.title("📌 Navigation")
-page = st.sidebar.radio(
-    "Επιλογή Λειτουργίας:",
-    ["💬 Hybrid Chatbot (RAG)", "📊 Direct Load Data Query", "📄 Upload & Index Documents", "⚙️ System Health"]
-)
 
-# ---------------------------------------------------------
-# PAGE 1: Hybrid Chatbot (RAG)
-# ---------------------------------------------------------
-if page == "💬 Hybrid Chatbot (RAG)":
-    st.header("💬 GridMind RAG Assistant")
-    st.caption("Ρώτησε σε φυσική γλώσσα για δεδομένα κατανάλωσης ή έγγραφα του συστήματος.")
-
-    # Initialize chat history
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    # Display chat messages from history on app rerun
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-            if "sources" in message and message["sources"]:
-                with st.expander("📌 Πηγές Δεδομένων"):
-                    for src in message["sources"]:
-                        st.write(f"- `{src}`")
-
-    # React to user input
-    if prompt := st.chat_input("π.χ. Ποια ήταν η κατανάλωση στις 3 Φεβρουαρίου 2026;"):
-        # Display user message in chat message container
-        st.chat_message("user").markdown(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        # Call FastAPI Endpoint
-        with st.chat_message("assistant"):
-            with st.spinner("Ανάκτηση δεδομένων & παραγωγή απάντησης..."):
-                try:
-                    response = requests.post(
-                        f"{API_BASE_URL}/chat",
-                        json={"message": prompt},
-                        headers={"Content-Type": "application/json"}
-                    )
-                    
-                    if response.status_code == 200:
-                        data = response.json()
-                        answer = data.get("answer", "Δεν παραλήφθηκε απάντηση.")
-                        sources = data.get("sources", [])
-
-                        st.markdown(answer)
-                        if sources:
-                            with st.expander("📌 Πηγές Δεδομένων"):
-                                for src in sources:
-                                    st.write(f"- `{src}`")
-                        
-                        st.session_state.messages.append({
-                            "role": "assistant",
-                            "content": answer,
-                            "sources": sources
-                        })
-                    else:
-                        st.error(f"Σφάλμα API: {response.status_code} - {response.text}")
-                except Exception as e:
-                    st.error(f"Αποτυχία σύνδεσης με το Backend: {e}")
-
-# ---------------------------------------------------------
-# PAGE 2: Direct Load Data Query
-# ---------------------------------------------------------
-elif page == "📊 Direct Load Data Query":
-    st.header("📊 Απευθείας Αναζήτηση στη Βάση (PostgreSQL)")
-    
-    selected_date = st.date_input("Επιλογή Ημερομηνίας:")
-    
-    if st.button("🔍 Ανάκτηση Φορτίου", type="primary"):
-        date_str = selected_date.strftime("%Y-%m-%d")
-        with st.spinner(f"Ανάκτηση δεδομένων για {date_str}..."):
+def call_api(method, path, **kwargs):
+    try:
+        response = requests.request(method, f"{API_BASE_URL}{path}", timeout=180, **kwargs)
+        if not response.ok:
             try:
-                # Αν έχεις dedicated GET endpoint για ημερομηνία
-                response = requests.get(f"{API_BASE_URL}/data/load", params={"date": date_str})
-                
-                if response.status_code == 200:
-                    res_data = response.json()
-                    st.success("Τα δεδομένα ανακτήθηκαν επιτυχώς!")
-                    st.json(res_data)
-                else:
-                    st.warning(f"Δεν βρέθηκαν δεδομένα ή το endpoint επέστρεψε: {response.status_code}")
-            except Exception as e:
-                st.error(f"Σφάλμα σύνδεσης: {e}")
+                detail = response.json().get("detail", response.text)
+            except ValueError:
+                detail = response.text
+            st.error(str(detail))
+            return None
+        return response.json()
+    except requests.RequestException:
+        st.error("Cannot reach the API. Start the backend and check API_BASE_URL.")
+        return None
 
-# ---------------------------------------------------------
-# PAGE 3: Upload & Index Documents
-# ---------------------------------------------------------
-elif page == "📄 Upload & Index Documents":
-    st.header("📄 Εισαγωγή Εγγράφων στο Qdrant Vector Store")
-    
-    uploaded_file = st.file_uploader("Επιλέξτε αρχείο (PDF, TXT):", type=["pdf", "txt"])
-    
-    if uploaded_file is not None:
-        if st.button("🚀 Upload & Vectorize", type="primary"):
-            with st.spinner("Επεξεργασία & δημιουργία Embeddings..."):
-                try:
-                    files = {"file": (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                    response = requests.post(f"{API_BASE_URL}/documents/upload", files=files)
-                    
-                    if response.status_code == 200:
-                        st.success(f"Το αρχείο '{uploaded_file.name}' ευρετηριάστηκε επιτυχώς στο Qdrant!")
-                        st.json(response.json())
-                    else:
-                        st.error(f"Σφάλμα κατά το upload: {response.status_code} - {response.text}")
-                except Exception as e:
-                    st.error(f"Αποτυχία σύνδεσης: {e}")
 
-# ---------------------------------------------------------
-# PAGE 4: System Health
-# ---------------------------------------------------------
-elif page == "⚙️ System Health":
-    st.header("⚙️ Κατάσταση Συστήματος & Services")
-    
-    if st.button("🔄 Έλεγχος Healthcheck"):
-        try:
-            response = requests.get("http://127.0.0.1:8000/health")
-            if response.status_code == 200:
-                st.success("Όλες οι υπηρεσίες (PostgreSQL, Qdrant, Groq LLM) είναι ONLINE!")
-                st.json(response.json())
+page = st.sidebar.radio("Explore", ["Chat", "Historical data", "Load forecast", "Health"])
+if page == "Chat":
+    st.caption("Try: 'Show generation from 2026-01-01 to 2026-01-31', 'RES yesterday', or 'Forecast load tomorrow'.")
+    if st.button("New chat"):
+        st.session_state["messages"] = []
+        st.session_state.pop("chat_context", None)
+        st.rerun()
+    st.caption("Follow up with 'and the next day?', 'show renewables instead', or 'what was the peak?'.")
+    messages = st.session_state.setdefault("messages", [])
+    for i, message in enumerate(messages):
+        with st.chat_message(message["role"]):
+            if message["role"] == "assistant":
+                # Separate widget identities when a repeated question has the same answer.
+                with st.container(key=f"message-{i}"):
+                    render(message["result"], widget_key=str(i))
             else:
-                st.error(f"Healthcheck Failed: {response.status_code}")
-        except Exception as e:
-            st.error(f"Backend Server Offline: {e}")
+                st.markdown(message["content"])
+    if prompt := st.chat_input("Ask about Greek electricity data / Ρώτησε για ενεργειακά δεδομένα"):
+        messages.append({"role": "user", "content": prompt})
+        with st.spinner("Retrieving energy data…"):
+            result = call_api("POST", "/chat", json={"message": prompt, "context": st.session_state.get("chat_context")})
+        if result:
+            if result.get("context"):
+                st.session_state["chat_context"] = result["context"]
+            messages.append({"role": "assistant", "result": result})
+            st.rerun()
+elif page == "Historical data":
+    dataset = st.selectbox("Dataset", ["load", "res", "generation"])
+    start = st.date_input("Start date")
+    end = st.date_input("End date")
+    if st.button("Show history"):
+        result = call_api("GET", f"/data/{dataset}", params={"start_date": str(start), "end_date": str(end)})
+        if result:
+            render(result)
+elif page == "Load forecast":
+    target = st.date_input("Target date")
+    st.caption("Choose one day up to two years after the latest data. Dates more than 14 days ahead use a seasonal projection with historical error bounds and require at least two years of history.")
+    if st.button("Forecast load"):
+        with st.spinner("Training and forecasting…"):
+            result = call_api("GET", "/forecasts/load", params={"date": str(target)})
+        if result:
+            render(result)
+else:
+    st.caption("This checks API availability; it does not certify database, model or RAG readiness.")
+    if st.button("Check API"):
+        try:
+            response = requests.get(API_BASE_URL.removesuffix("/api/v1") + "/health", timeout=10)
+            response.raise_for_status()
+            st.json(response.json())
+        except requests.RequestException:
+            st.error("API unavailable.")

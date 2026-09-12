@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 
 
 VALID_TECHNOLOGIES = {
@@ -11,17 +12,25 @@ VALID_TECHNOLOGIES = {
 
 
 def _require_columns(df: pd.DataFrame, required: set[str], label: str) -> None:
+    if df.empty:
+        raise ValueError(f"{label} dataset is empty.")
     missing = required - set(df.columns)
 
     if missing:
         raise ValueError(f"Missing {label} columns: {missing}")
+    if pd.to_datetime(df["date"], errors="coerce").isna().any():
+        raise ValueError(f"Invalid {label} dates.")
+    for column in required:
+        if column.endswith("_mwh"):
+            if not pd.api.types.is_numeric_dtype(df[column]) or not np.isfinite(df[column]).all():
+                raise ValueError(f"Missing or non-finite {label} values in {column}.")
 
 
 def _validate_periods(df: pd.DataFrame, label: str) -> None:
     if df["period"].isna().any():
         raise ValueError(f"Missing {label} periods.")
 
-    if not df["period"].between(1, 25).all():
+    if not pd.api.types.is_numeric_dtype(df["period"]) or not df["period"].between(1, 25).all() or not df["period"].mod(1).eq(0).all():
         raise ValueError(f"Invalid {label} period.")
 
 

@@ -1,16 +1,7 @@
-import os
 import sqlalchemy as sa
-from dotenv import load_dotenv
+from gridmind.data.database import get_engine
 
-load_dotenv()
-
-user = os.getenv("POSTGRES_USER", "gridmind")
-password = os.getenv("POSTGRES_PASSWORD", "gridmind")
-host = os.getenv("POSTGRES_HOST", "localhost")
-port = os.getenv("POSTGRES_PORT", "5432")
-db_name = os.getenv("POSTGRES_DB", "gridmind")
-
-engine = sa.create_engine(f"postgresql://{user}:{password}@{host}:{port}/{db_name}")
+engine = get_engine()
 
 tables = ['system_load', 'res_production', 'generation_actual', 'load_forecasts', 'res_forecasts']
 

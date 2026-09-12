@@ -1,20 +1,9 @@
-import os
 import sqlalchemy as sa
-from dotenv import load_dotenv
+from gridmind.data.database import get_engine
 
-# Φόρτωση μεταβλητών από το .env
-load_dotenv()
-
-user = os.getenv("POSTGRES_USER", "postgres")
-password = os.getenv("POSTGRES_PASSWORD", "postgres")
-host = os.getenv("POSTGRES_HOST", "localhost")
-port = os.getenv("POSTGRES_PORT", "5432")
-db_name = os.getenv("POSTGRES_DB", "gridmind_db")
-
-db_url = f"postgresql://{user}:{password}@{host}:{port}/{db_name}"
+engine = get_engine()
 
 try:
-    engine = sa.create_engine(db_url)
     inspector = sa.inspect(engine)
     tables = inspector.get_table_names()
     

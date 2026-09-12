@@ -1,5 +1,8 @@
 import logging
 import os
+import hashlib
+import uuid
+from pathlib import Path
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from langchain_community.document_loaders import PyPDFLoader
@@ -69,10 +72,11 @@ class PDFIngestionPipeline:
         embeddings = self.embedding_service.embed_documents(text_contents)
 
         # Step 4: Construct Qdrant PointStruct items
+        document_digest = hashlib.sha256(Path(config.pdf_path).read_bytes()).hexdigest()
         points: List[models.PointStruct] = []
         for idx, (chunk, vector) in enumerate(zip(chunks, embeddings)):
             point = models.PointStruct(
-                id=idx,  # Integer ID for each point
+                id=str(uuid.uuid5(uuid.NAMESPACE_URL, document_digest + f":{idx}")),
                 vector=vector,
                 payload={
                     "text": chunk.page_content,

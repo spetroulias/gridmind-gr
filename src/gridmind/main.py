@@ -10,6 +10,7 @@ app = FastAPI(
 # Mount central API router containing /chat and /forecasts
 app.include_router(api_router)
 
+@app.get("/health")
 @app.get("/")
 def health_check():
     return {"status": "online", "system": "GridMind GR API"}
