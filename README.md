@@ -2,6 +2,74 @@
 
 A FastAPI and Streamlit application for exploring Greek electricity data through chat, tables and charts. Structured analytics work without Groq, Qdrant or embedding downloads.
 
+## Project overview
+
+GridMind GR is an end-to-end energy analytics platform built around public ADMIE (Independent Power Transmission Operator of Greece) data. It combines a validated data ingestion pipeline, a PostgreSQL analytical store, deterministic query services, machine-learning forecasts and an optional document question-answering workflow.
+
+The project is designed to answer practical questions such as:
+
+- How did system load, renewable production or generation by technology change over a selected period?
+- What were the total, average and peak hourly values for a dataset or generation source?
+- What is the expected system load for a future day, and how did the forecasting method perform on held-out history?
+- Can a user ask these questions through a conversational interface while retaining dataset and date context?
+
+This repository demonstrates data engineering, API design, analytics, applied machine learning and product integration in one cohesive application. It also documents important domain boundaries: the load data excludes Crete, generation already includes RES, reporting periods are treated as nominal hours, and model outputs are estimates rather than official ADMIE forecasts.
+
+## Technology stack
+
+| Area | Technologies | Role in the project |
+|---|---|---|
+| Language and packaging | Python 3.11+, `setuptools`, virtual environments | Application code, command-line workflows and reproducible installation |
+| Data acquisition | `requests`, ADMIE client, `pandas`, `openpyxl`, `xlrd` | Download, parse and normalize spreadsheet-based public energy data |
+| Data quality | `pandas`, validation modules, generated test fixtures | Enforce schema, timestamp, coverage and domain checks before persistence |
+| Storage | PostgreSQL, SQLAlchemy 2, psycopg | Store hourly load, renewable production, generation and forecast records |
+| Backend API | FastAPI, Uvicorn, Pydantic 2 | Typed REST endpoints, request validation, response schemas and OpenAPI docs |
+| Analytics | Pandas and parameterized SQL query functions | Aggregate history, filter technologies and calculate totals, means and peaks |
+| Forecasting | scikit-learn, Random Forest, gradient boosting, NumPy, joblib | Short-horizon lag-based forecasts and longer-horizon calendar-based projections |
+| User interface | Streamlit, requests | Chat, historical data, forecast and health-check views with charts and CSV export |
+| Conversational layer | Explicit request parsing, conversation context, Pydantic models | Date-aware follow-ups and deterministic routing to supported analytics operations |
+| Optional RAG | Qdrant, Sentence Transformers, PyTorch, PyPDF, LangChain, OpenAI/Groq integrations | Retrieve document excerpts and generate grounded answers when explicitly enabled |
+| Testing and operations | Pytest, pytest-asyncio, Docker Compose, environment variables | Automated unit coverage, local PostgreSQL, service startup and configuration |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  ADMIE[ADMIE public files] --> ING[Ingestion and parsing]
+  ING --> VALID[Validation]
+  VALID --> DB[(PostgreSQL)]
+  DB --> QUERY[Typed query and analytics services]
+  QUERY --> API[FastAPI REST API]
+  API --> UI[Streamlit dashboard]
+  API --> CHAT[Conversation and request resolver]
+  CHAT --> QUERY
+  DB --> FEATURES[Feature engineering]
+  FEATURES --> MODELS[Forecasting models]
+  MODELS --> API
+  DOCS[Optional PDF documents] --> RAG[Embedding and retrieval]
+  RAG --> CHAT
+```
+
+### Engineering flow
+
+1. **Acquire and normalize:** `AdmieClient` downloads the selected ADMIE categories. Parsers convert source spreadsheets into consistent tabular structures.
+2. **Validate before storage:** dataset-specific validators check the normalized frames before rows are written to PostgreSQL. This keeps ingestion failures visible and prevents malformed data from silently entering analytics.
+3. **Serve deterministic analytics:** query functions provide controlled access to historical data. The chat path resolves supported user language into a typed dataset, date range and technology filter; it does not execute model-generated SQL.
+4. **Forecast with explicit contracts:** short-term load forecasting uses calendar variables and 24-, 48- and 168-hour lags. Longer horizons use a separate calendar-only projection model, with held-out validation metrics returned alongside results.
+5. **Present results:** FastAPI exposes JSON responses and interactive OpenAPI documentation. Streamlit consumes the API and renders charts, tables, metadata and CSV downloads.
+6. **Extend with optional retrieval:** document RAG is isolated behind configuration flags, so the structured analytics application remains usable without an LLM provider, vector database or embedding download.
+
+## What this project demonstrates
+
+- **End-to-end ownership:** source acquisition, validation, persistence, backend services, modeling and user interface are connected and runnable locally.
+- **Data modeling judgment:** load, RES and generation are kept as distinct datasets, with domain-specific interpretation documented rather than hidden in charts.
+- **Reliable interfaces:** Pydantic response models, typed request context, explicit endpoint contracts and health checks make behavior observable to API and UI clients.
+- **Applied forecasting:** feature engineering, reproducible model training, recursive future prediction, long-horizon modeling and held-out evaluation are implemented as separate concerns.
+- **Responsible AI boundaries:** structured questions use deterministic analytics first; optional document answers are instructed to use retrieved excerpts only, and model limitations are surfaced to the user.
+- **Testable design:** parsing, validation, analytics, conversation handling and long-term forecasting have focused tests that do not require private data, an LLM key or a live database.
+
+The project is intentionally transparent about what it does not claim. It is an analytical and forecasting application, not a certified settlement system, an official market forecast or an unrestricted general-purpose chatbot.
+
 ## Three ADMIE datasets
 
 | Category | Stored table | Interpretation |
